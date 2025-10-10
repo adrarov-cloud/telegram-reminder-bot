@@ -1,112 +1,181 @@
-#!/usr/bin/env python3
 """
 Telegram Reminder Bot - Main Entry Point
 
-A professional reminder bot built with aiogram 3.x, featuring:
-- Asynchronous architecture with rate limiting protection
-- SQLAlchemy ORM with async support
-- APScheduler for reliable reminder delivery
-- Comprehensive error handling and logging
-- FSM (Finite State Machine) for user interactions
-- Production-ready with Docker support
+Production-ready Telegram bot with modular architecture,
+comprehensive error handling, and advanced scheduling features.
 
-Author: Assistant AI
-Created: 2025-10-10
+Author: AI Development Team
+Version: 2.0.0
+License: MIT
 """
 
 import asyncio
 import logging
+import signal
 import sys
 from pathlib import Path
+from typing import Any, Dict
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent))
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
 
-from app.core.bot import create_bot
-from app.core.dispatcher import create_dispatcher
-from app.database.connection import init_database
-from app.scheduler.reminder_scheduler import create_scheduler
-from app.config import settings
-from app.utils.logger import setup_logging
+from src.bot.bot import create_bot
+from src.config import config
+from src.database.operations import init_database
+from src.handlers import register_handlers
+from src.services.scheduler_service import SchedulerService
+from src.utils.logging import setup_logging
+
+
+class TelegramReminderBot:
+    """Main bot application class."""
+    
+    def __init__(self):
+        """Initialize the bot application."""
+        self.bot: Bot | None = None
+        self.dp: Dispatcher | None = None
+        self.scheduler: SchedulerService | None = None
+        self._shutdown_event = asyncio.Event()
+    
+    async def startup(self) -> None:
+        """Initialize and start all bot components."""
+        try:
+            # Setup logging
+            setup_logging(config.LOG_LEVEL, config.LOG_FILE)
+            logger = logging.getLogger(__name__)
+            logger.info("🚀 Starting Telegram Reminder Bot v2.0.0")
+            
+            # Validate configuration
+            if not config.BOT_TOKEN:
+                raise ValueError("BOT_TOKEN is not set in environment variables")
+            
+            # Initialize database
+            logger.info("📦 Initializing database...")
+            await init_database()
+            
+            # Create bot and dispatcher
+            logger.info("🤖 Creating bot instance...")
+            self.bot = create_bot(config.BOT_TOKEN)
+            
+            storage = MemoryStorage()
+            self.dp = Dispatcher(storage=storage)
+            
+            # Register handlers
+            logger.info("📝 Registering handlers...")
+            register_handlers(self.dp)
+            
+            # Initialize scheduler
+            logger.info("⏰ Starting scheduler service...")
+            self.scheduler = SchedulerService(self.bot)
+            await self.scheduler.start()
+            
+            # Load pending reminders
+            logger.info("📥 Loading pending reminders...")
+            await self.scheduler.load_pending_reminders()
+            
+            logger.info("✅ Bot initialization completed successfully")
+            
+        except Exception as e:
+            logger.error(f"💥 Failed to initialize bot: {e}")
+            raise
+    
+    async def shutdown(self) -> None:
+        """Gracefully shutdown all bot components."""
+        logger = logging.getLogger(__name__)
+        logger.info("🛑 Shutting down Telegram Reminder Bot...")
+        
+        try:
+            # Stop scheduler
+            if self.scheduler:
+                logger.info("⏰ Stopping scheduler...")
+                await self.scheduler.stop()
+            
+            # Close bot session
+            if self.bot:
+                logger.info("🤖 Closing bot session...")
+                await self.bot.session.close()
+            
+            # Close database connections
+            # Note: SQLite connections are closed automatically
+            
+            logger.info("✅ Shutdown completed successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Error during shutdown: {e}")
+    
+    def setup_signal_handlers(self) -> None:
+        """Setup signal handlers for graceful shutdown."""
+        def signal_handler(signum: int, frame: Any) -> None:
+            logger = logging.getLogger(__name__)
+            logger.info(f"📡 Received signal {signum}, initiating shutdown...")
+            self._shutdown_event.set()
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+    
+    async def run(self) -> None:
+        """Run the bot with polling."""
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Setup signal handlers
+            self.setup_signal_handlers()
+            
+            # Initialize components
+            await self.startup()
+            
+            # Start polling
+            logger.info("🔄 Starting polling...")
+            polling_task = asyncio.create_task(
+                self.dp.start_polling(
+                    self.bot,
+                    skip_updates=True,
+                    allowed_updates=self.dp.resolve_used_update_types()
+                )
+            )
+            
+            # Wait for shutdown signal
+            await self._shutdown_event.wait()
+            
+            # Cancel polling
+            polling_task.cancel()
+            
+            try:
+                await polling_task
+            except asyncio.CancelledError:
+                logger.info("📴 Polling stopped")
+            
+        except Exception as e:
+            logger.error(f"💥 Critical error in main loop: {e}")
+            raise
+        
+        finally:
+            await self.shutdown()
 
 
 async def main() -> None:
-    """
-    Main application entry point.
-    
-    Initializes all components and starts the bot:
-    1. Sets up logging
-    2. Initializes database
-    3. Creates bot and dispatcher
-    4. Sets up scheduler
-    5. Starts polling
-    """
-    # Setup logging
-    setup_logging()
-    logger = logging.getLogger(__name__)
+    """Main entry point."""
+    app = TelegramReminderBot()
     
     try:
-        logger.info("Starting Telegram Reminder Bot...")
-        
-        # Initialize database
-        logger.info("Initializing database...")
-        await init_database()
-        logger.info("✅ Database initialized")
-        
-        # Create bot instance
-        logger.info("Creating bot instance...")
-        bot = create_bot()
-        logger.info("✅ Bot created")
-        
-        # Create dispatcher with all handlers and middlewares
-        logger.info("Setting up dispatcher...")
-        dp = create_dispatcher()
-        logger.info("✅ Dispatcher created")
-        
-        # Initialize and start scheduler
-        logger.info("Starting scheduler...")
-        scheduler = create_scheduler(bot)
-        scheduler.start()
-        logger.info("✅ Scheduler started")
-        
-        logger.info("✅ Handlers registered")
-        logger.info(f"✅ Bot @{settings.BOT_USERNAME} is ready!")
-        logger.info("🔄 Starting with polling...")
-        
-        # Start polling
-        await dp.start_polling(
-            bot,
-            allowed_updates=[
-                "message", 
-                "callback_query", 
-                "inline_query",
-                "chosen_inline_result"
-            ]
-        )
-        
-    except Exception as e:
-        logger.error(f"Critical error during startup: {e}")
-        raise
-    finally:
-        # Cleanup
-        logger.info("Shutting down...")
-        if 'scheduler' in locals():
-            scheduler.shutdown()
-        if 'bot' in locals():
-            await bot.session.close()
-        logger.info("✅ Cleanup completed")
-
-
-if __name__ == "__main__":
-    try:
-        # For Windows compatibility
-        if sys.platform.startswith('win'):
-            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-        
-        # Run the bot
-        asyncio.run(main())
+        await app.run()
     except KeyboardInterrupt:
-        print("\n🛑 Bot stopped by user")
+        logging.getLogger(__name__).info("👋 Bot stopped by user")
     except Exception as e:
-        print(f"💥 Fatal error: {e}")
+        logging.getLogger(__name__).error(f"💥 Unhandled error: {e}")
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    # Ensure we're running from the project root
+    project_root = Path(__file__).parent
+    sys.path.insert(0, str(project_root))
+    
+    # Run the bot
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"💥 Failed to start bot: {e}")
         sys.exit(1)
