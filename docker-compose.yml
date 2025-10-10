@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build: .
+    container_name: telegram-reminder-bot
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - BOT_USERNAME=${BOT_USERNAME}
+      - DATABASE_URL=postgresql://reminder_user:reminder_pass@postgres:5432/reminder_bot
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - DEFAULT_TIMEZONE=Europe/Moscow
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./logs:/app/logs
+      - bot_data:/app/data
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - bot_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: telegram-bot-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=reminder_bot
+      - POSTGRES_USER=reminder_user
+      - POSTGRES_PASSWORD=reminder_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bot_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reminder_user -d reminder_bot"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: telegram-bot-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - bot_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Optional: Database administration interface
+  adminer:
+    image: adminer:latest
+    container_name: telegram-bot-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - bot_network
+    profiles:
+      - admin
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  bot_data:
+    driver: local
+
+networks:
+  bot_network:
+    driver: bridge
