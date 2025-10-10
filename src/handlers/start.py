@@ -7,7 +7,8 @@ Command handlers for /start, /help, and basic bot commands.
 import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command
+from aiogram.filters.command import CommandStart
 from aiogram.fsm.context import FSMContext
 
 from src.database.operations import get_session, UserOperations
@@ -68,7 +69,7 @@ async def cmd_start(message: Message, state: FSMContext):
         )
 
 
-@router.message(Command("help"))
+@router.message(Command(commands=["help"]))
 async def cmd_help(message: Message):
     """Handle /help command."""
     help_text = format_help_message("main")
@@ -130,7 +131,7 @@ async def show_main_menu(callback: CallbackQuery, state: FSMContext):
     )
 
 
-@router.message(Command("stats"))
+@router.message(Command(commands=["stats"]))
 async def cmd_stats(message: Message):
     """Handle /stats command."""
     try:
@@ -229,7 +230,7 @@ async def show_stats_callback(callback: CallbackQuery):
         )
 
 
-@router.message(Command("settings"))
+@router.message(Command(commands=["settings"]))
 async def cmd_settings(message: Message):
     """Handle /settings command."""
     from src.utils.keyboards import settings_keyboard
@@ -274,7 +275,7 @@ async def show_settings_callback(callback: CallbackQuery):
 
 
 # Handle unknown commands
-@router.message(Command())
+@router.message(Command(commands=["unknown"]))
 async def unknown_command(message: Message):
     """Handle unknown commands."""
     await message.answer(

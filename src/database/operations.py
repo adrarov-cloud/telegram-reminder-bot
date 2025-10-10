@@ -16,6 +16,8 @@ from sqlalchemy.orm import selectinload
 from src.config import config
 from src.database.models import Base, User, Reminder, UserStatistics, ReminderTemplate, SystemLog
 
+from contextlib import asynccontextmanager
+
 logger = logging.getLogger(__name__)
 
 # Database engine and session
@@ -44,6 +46,7 @@ async def init_database() -> None:
         raise
 
 
+@asynccontextmanager
 async def get_session() -> AsyncSession:
     """Get database session."""
     async with async_session() as session:

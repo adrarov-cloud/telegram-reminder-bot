@@ -5,7 +5,7 @@ SQLAlchemy models for reminders, users, and statistics
 with comprehensive relationships and indexes.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from sqlalchemy import (

@@ -23,7 +23,7 @@ class Config:
     
     # Database Configuration
     DATABASE_PATH: str = os.getenv('DATABASE_PATH', 'reminders.db')
-    DATABASE_URL: str = f"sqlite:///{DATABASE_PATH}"
+    DATABASE_URL: str = f"sqlite+aiosqlite:///{DATABASE_PATH}"
     
     # Logging Configuration
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
